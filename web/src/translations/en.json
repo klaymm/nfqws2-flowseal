@@ -1,0 +1,172 @@
+{
+  "system": {
+    "not_found": "404: page not found",
+    "change_theme": "Change theme",
+    "change_lang": "Русский",
+    "github": "The build on GitHub",
+    "running": "nfqws2 is running",
+    "stopped": "nfqws2 is stopped",
+    "no_connection": "No connection to the router"
+  },
+  "auth": {
+    "login": "Log in",
+    "logout": "Log out",
+    "password": "Password",
+    "error": "Wrong password",
+    "forgot": "Forgot the password? Over SSH on the router run: nfqws2-flowseal password off"
+  },
+  "tabs": {
+    "strategy": "Strategy",
+    "lists": "Lists",
+    "log": "Log",
+    "settings": "Settings"
+  },
+  "common": {
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "update": "Update the build",
+    "save": "Save",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "refresh": "Refresh"
+  },
+  "confirmation": {
+    "file_not_saved": {
+      "title": "The list is not saved",
+      "description": "Leave without saving the changes?"
+    },
+    "update": {
+      "title": "Update the build?",
+      "description": "The latest build is downloaded from GitHub and installed. nfqws2 restarts, this page may reload."
+    },
+    "password_off": {
+      "title": "Turn the password off?",
+      "description": "Anyone on your home network will be able to open this page and change the settings."
+    }
+  },
+  "strategy": {
+    "select": "Strategy",
+    "help": "A strategy is a set of Flowseal bypass techniques: fake packets, splitting requests, swapping the site name. Providers block things differently, so if a site or Discord voice does not work, try the strategies one by one. ALT11 is the default.",
+    "default": "default",
+    "current": "now",
+    "apply": "Apply",
+    "ts_badge": "TS",
+    "ts_help": "The fakes of this strategy need TCP timestamps. Phones, Macs and Linux have them on; Windows has them off by default. Turn them on in an administrator console: netsh interface tcp set global timestamps=enabled. Without them the fakes are skipped and only the other techniques work.",
+    "approx_badge": "≈",
+    "approx_help": "Approximate translation: zapret2 has no altorder mode for hostfakesplit, the usual order is used.",
+    "ts_short": "Fakes need TCP timestamps",
+    "approx_short": "Approximate translation",
+    "groups": {
+      "general": "general and ALT",
+      "exp": "Experimental"
+    },
+    "state": "nfqws2",
+    "running": "running",
+    "stopped": "stopped",
+    "interface": "Provider interface",
+    "interface_help": "The router port the internet comes through. It is detected on install.",
+    "rules": "Rules",
+    "rules_help": "How many iptables rules send traffic to nfqws2. 0 means nothing is processed.",
+    "busy": "The router is busy with an update or another change, try again in a minute.",
+    "status": "Status"
+  },
+  "lists": {
+    "personal": "Your lists",
+    "personal_help": "These lists are yours: only you change them, build updates never touch them.",
+    "flowseal": "Flowseal lists",
+    "readonly": "Read-only: these lists are replaced when the build is updated.",
+    "readonly_short": "read-only",
+    "saved": "Saved. nfqws2 picks up the list by itself, no restart needed.",
+    "save_error": "Could not save the list",
+    "files": {
+      "user": {
+        "title": "Sites",
+        "help": "Your domains to apply the strategy to, one per line. Subdomains are included; ^ at the start of a line means this domain only. Works together with the Flowseal list-general."
+      },
+      "exclude": {
+        "title": "Exclusions",
+        "help": "Domains that must not be touched even if they are in other lists, for example sites that break with the bypass."
+      },
+      "ipset": {
+        "title": "IP addresses",
+        "help": "IP addresses and subnets for the Flowseal by-IP profiles, one per line, for example 1.2.3.0/24. Such traffic is processed without checking the site name."
+      },
+      "ipset_exclude": {
+        "title": "IP exclusions",
+        "help": "IP addresses and subnets that must not be touched."
+      },
+      "list-general": {
+        "title": "Sites",
+        "help": "The main Flowseal list: Discord, Cloudflare, DNS services and more."
+      },
+      "list-google": {
+        "title": "YouTube",
+        "help": "Google and YouTube sites: the strategies have a separate profile for them."
+      },
+      "list-exclude": {
+        "title": "Exclusions",
+        "help": "Sites Flowseal never touches: banks, government services, Yandex and others."
+      },
+      "ipset-exclude": {
+        "title": "IP exclusions",
+        "help": "Local networks that are never processed."
+      },
+      "ipset-all": {
+        "title": "IP addresses",
+        "help": "The Flowseal IP list. It holds a placeholder 203.0.113.113/32, like the IPSet none mode in Flowseal: nothing is processed by IP."
+      }
+    }
+  },
+  "log": {
+    "help": "What the build did last: install, update, strategy changes.",
+    "empty": "The log is empty."
+  },
+  "settings": {
+    "appearance": "Appearance",
+    "language": "Language",
+    "theme": "Theme",
+    "theme_system": "As in the system",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "password": "Password",
+    "password_help": "Protects this page. It is a separate password for this interface only, not the router one. If you forget it, run over SSH on the router: nfqws2-flowseal password off",
+    "password_on": "A password is set.",
+    "password_off": "No password: anyone on your home network can open this page.",
+    "new_password": "New password",
+    "repeat_password": "Repeat",
+    "set_password": "Save the password",
+    "disable_password": "Turn the password off",
+    "password_mismatch": "The passwords do not match",
+    "password_saved": "The password is saved",
+    "password_disabled": "The password is off",
+    "updates": "Updates",
+    "updates_help": "New builds bring tested Flowseal strategies and lists. The nfqws2 engine is frozen and is updated only together with the build.",
+    "autoupdate": "Update by itself every night",
+    "autoupdate_at": "at {{time}}",
+    "check": "Check for updates",
+    "check_failed": "Could not check: GitHub is unreachable",
+    "update_now": "Update now",
+    "latest": "Latest build on GitHub: {{version}}",
+    "up_to_date": "You have the latest build",
+    "about": "About",
+    "build": "Build",
+    "flowseal": "Flowseal strategies and lists",
+    "engine": "nfqws2 engine",
+    "engine_held": "frozen, updated only with the build"
+  },
+  "update": {
+    "title": "Updating the build",
+    "running": "Updating...",
+    "done": "Done",
+    "failed": "The update finished with an error, see the log above.",
+    "reload": "Reload the page",
+    "available": "Build {{version}} is available, update it from the menu",
+    "version": "Build version"
+  },
+  "editor": {
+    "magic_button": "Remove duplicates",
+    "undo_button": "Undo"
+  }
+}

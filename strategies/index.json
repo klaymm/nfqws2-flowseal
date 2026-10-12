@@ -1,0 +1,402 @@
+{
+  "flowseal": "1.10.3",
+  "default": "alt11",
+  "strategies": [
+    {
+      "id": "general",
+      "title": "general",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: multisplit seqovl 568",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: multisplit seqovl 568",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt",
+      "title": "general (ALT)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun, google.com ×6, fakedsplit, fooling ts",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun, google.com ×6, fakedsplit, fooling ts",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt2",
+      "title": "general (ALT2)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: multisplit seqovl 652",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: multisplit seqovl 652",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt3",
+      "title": "general (ALT3)",
+      "ts": true,
+      "approximate": true,
+      "description": {
+        "ru": [
+          "Сайты: фейк TLS по умолчанию ×1, hostfakesplit (ya.ru), fooling ts",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake default TLS ×1, hostfakesplit (ya.ru), fooling ts",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt4",
+      "title": "general (ALT4)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun, google.com ×6, multisplit, fooling badseq",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun, google.com ×6, multisplit, fooling badseq",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt5",
+      "title": "general (ALT5)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Все сайты: syndata, multidisorder",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "All sites: syndata, multidisorder",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt6",
+      "title": "general (ALT6)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: multisplit seqovl 681",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: multisplit seqovl 681",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt7",
+      "title": "general (ALT7)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: multisplit seqovl 679",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: multisplit seqovl 679",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt8",
+      "title": "general (ALT8)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк TLS по умолчанию ×6, fooling badseq",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake default TLS ×6, fooling badseq",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt9",
+      "title": "general (ALT9)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: hostfakesplit (ozon.ru), fooling ts,md5sig",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: hostfakesplit (ozon.ru), fooling ts,md5sig",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt10",
+      "title": "general (ALT10)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun, 4pda.to ×6, fooling ts",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun, 4pda.to ×6, fooling ts",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt11",
+      "title": "general (ALT11)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun2, max.ru ×8, multisplit seqovl 664, fooling ts",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun2, max.ru ×8, multisplit seqovl 664, fooling ts",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "alt12",
+      "title": "general (ALT12)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun, max.ru ×8, multisplit seqovl 664, fooling ts",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×3"
+        ],
+        "en": [
+          "Sites: fakes stun, max.ru ×8, multisplit seqovl 664, fooling ts",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×3"
+        ]
+      }
+    },
+    {
+      "id": "alt13",
+      "title": "general (ALT13)",
+      "ts": true,
+      "approximate": true,
+      "description": {
+        "ru": [
+          "Сайты: фейки sochi.park, stun2 ×5, hostfakesplit (mail.ru), fooling ts",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×5"
+        ],
+        "en": [
+          "Sites: fakes sochi.park, stun2 ×5, hostfakesplit (mail.ru), fooling ts",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×5"
+        ]
+      }
+    },
+    {
+      "id": "exp",
+      "title": "general (EXP)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк max.ru ×4, multisplit seqovl 480, fooling ts",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×4"
+        ],
+        "en": [
+          "Sites: fake max.ru ×4, multisplit seqovl 480, fooling ts",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×4"
+        ]
+      }
+    },
+    {
+      "id": "fake-tls-auto",
+      "title": "general (FAKE TLS AUTO)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки 4 нулевых байта, TLS по умолчанию ×11, multidisorder, fooling badseq",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes 4 zero bytes, default TLS ×11, multidisorder, fooling badseq",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "fake-tls-auto-alt",
+      "title": "general (FAKE TLS AUTO ALT)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк TLS по умолчанию ×8, fakedsplit, fooling badseq",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake default TLS ×8, fakedsplit, fooling badseq",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "fake-tls-auto-alt2",
+      "title": "general (FAKE TLS AUTO ALT2)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк TLS по умолчанию ×8, multisplit seqovl 681, fooling badseq",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake default TLS ×8, multisplit seqovl 681, fooling badseq",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "fake-tls-auto-alt3",
+      "title": "general (FAKE TLS AUTO ALT3)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк TLS по умолчанию ×8, multisplit seqovl 681, fooling ts",
+          "QUIC: фейк ×11",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake default TLS ×8, multisplit seqovl 681, fooling ts",
+          "QUIC: fake ×11",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "simple-fake",
+      "title": "general (SIMPLE FAKE)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейк google.com ×6, fooling ts",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fake google.com ×6, fooling ts",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "simple-fake-alt",
+      "title": "general (SIMPLE FAKE ALT)",
+      "ts": false,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun2, google.com ×6, fooling badseq",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun2, google.com ×6, fooling badseq",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    },
+    {
+      "id": "simple-fake-alt2",
+      "title": "general (SIMPLE FAKE ALT2)",
+      "ts": true,
+      "approximate": false,
+      "description": {
+        "ru": [
+          "Сайты: фейки stun2, max.ru ×6, fooling ts",
+          "QUIC: фейк ×6",
+          "Голос Discord: фейк ×6"
+        ],
+        "en": [
+          "Sites: fakes stun2, max.ru ×6, fooling ts",
+          "QUIC: fake ×6",
+          "Discord voice: fake ×6"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,831 @@
+#!/opt/bin/sh
+
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+REPO=klaymm/nfqws2-flowseal
+ARCHIVE_URL=https://github.com/$REPO/archive/refs/heads/main.tar.gz
+CONF_DIR=/opt/etc/nfqws2
+STATE_DIR=/opt/etc/nfqws2-flowseal
+SETTINGS=$STATE_DIR/settings
+WEB_CONF=$STATE_DIR/web.conf
+TOOL=/opt/bin/nfqws2-flowseal
+INIT=/opt/etc/init.d/S51nfqws2
+WWW_DIR=/opt/share/www/nfqws2-flowseal
+LIGHTTPD_CONF=/opt/etc/lighttpd/conf.d/80-nfqws2-flowseal.conf
+LIGHTTPD_INIT=/opt/etc/init.d/S80lighttpd
+CRON_FILE=/opt/etc/cron.d/nfqws2-flowseal
+LOG=/opt/var/log/nfqws2-flowseal.log
+LOCK=/opt/var/run/nfqws2-flowseal.lock
+PERSONAL="user.list exclude.list ipset.list ipset_exclude.list"
+ENGINE=nfqws2-keenetic
+WEB_PACKAGES="lighttpd lighttpd-mod-cgi lighttpd-mod-setenv lighttpd-mod-rewrite php8-cgi php8-mod-session"
+OLD_WEB=nfqws-keenetic-web
+OLD_WEB_EXTRA="php8-mod-curl lighttpd-mod-redirect"
+
+WORK=
+STAGE=
+LOCKED=
+LOGGING=
+
+out() {
+  printf "$@"
+  [ -n "$LOGGING" ] && printf "$@" >> "$LOG"
+  return 0
+}
+say()  { out '%s\n' "$*"; }
+step() { out '\n== %s\n' "$*"; }
+warn() { out '  ! %s\n' "$*"; }
+die()  { out '\nОшибка: %s\n' "$*" >&2; exit 1; }
+
+show_file() {
+  if [ -n "$2" ]; then tail -n "$2" "$1"; else cat "$1"; fi | while IFS= read -r line; do
+    say "  $line"
+  done
+}
+
+keep_running() {
+  trap '' HUP PIPE
+  case "$NFQWS2_FLOWSEAL_LOG" in
+    stdout) return 0 ;;
+    append) LOGGING=1; return 0 ;;
+  esac
+  mkdir -p "${LOG%/*}"
+  if [ "$2" = append ]; then
+    [ -s "$LOG" ] && echo >> "$LOG"
+  else
+    : > "$LOG"
+  fi
+  LOGGING=1
+  NFQWS2_FLOWSEAL_LOG=append
+  export NFQWS2_FLOWSEAL_LOG
+  say "$(date '+%Y-%m-%d %H:%M') nfqws2-flowseal $1"
+}
+
+cleanup() {
+  [ -n "$WORK" ] && rm -rf "$WORK"
+  [ -n "$LOCKED" ] && rmdir "$LOCK" 2>/dev/null
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+
+lock() {
+  [ -n "$NFQWS2_FLOWSEAL_LOCKED" ] && return 0
+  mkdir -p "${LOCK%/*}"
+  mkdir "$LOCK" 2>/dev/null || die "nfqws2-flowseal уже работает. Если это не так, удалите $LOCK"
+  LOCKED=1
+  NFQWS2_FLOWSEAL_LOCKED=1
+  export NFQWS2_FLOWSEAL_LOCKED
+}
+
+new_work() {
+  mkdir -p /opt/tmp
+  WORK=$(mktemp -d /opt/tmp/nfqws2-flowseal.XXXXXX) || die "не удалось создать временную папку"
+  chmod 755 "$WORK"
+}
+
+build_value() { sed -n "s/^$1=//p" "$2" | tr -d '"'; }
+setting()     { [ -f "$SETTINGS" ] && sed -n "s/^$1=//p" "$SETTINGS" | tr -d '"'; }
+
+set_setting() {
+  mkdir -p "$STATE_DIR"
+  { [ -f "$SETTINGS" ] && grep -v "^$1=" "$SETTINGS"; echo "$1=$2"; } > "$SETTINGS.new"
+  mv -f "$SETTINGS.new" "$SETTINGS"
+}
+
+version_gt() {
+  awk -v a="$1" -v b="$2" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, ".")
+    for (i = 1; i <= (n > m ? n : m); i++) if (x[i] + 0 != y[i] + 0) exit !(x[i] + 0 > y[i] + 0)
+    exit 1
+  }'
+}
+
+opkg_net() {
+  conf=$WORK/opkg.conf
+  if [ ! -f "$conf" ]; then
+    sed 's#http://bin\.entware\.net#https://bin.entware.net#' /opt/etc/opkg.conf > "$conf"
+    echo "option http_timeout 30" >> "$conf"
+  fi
+  opkg -f "$conf" "$@"
+}
+
+pkg_version()   { opkg status "$1" 2>/dev/null | sed -n 's/^Version: //p'; }
+pkg_available() { opkg list "$1" 2>/dev/null | awk -v p="$1" '$1 == p { print $3; exit }'; }
+pkg_held()      { opkg status "$1" 2>/dev/null | grep -q '^Status: .*hold'; }
+
+is_personal() {
+  case " $PERSONAL " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+is_pkg_default() {
+  [ -s "$1" ] || return 1
+  sum=$(opkg status "$ENGINE" 2>/dev/null | awk -v f="$1" '$1 == f { print $2; exit }')
+  [ -n "$sum" ] && [ "$(sha256sum < "$1" | cut -d ' ' -f 1)" = "$sum" ]
+}
+
+nfqws_running() { "$INIT" status 2>/dev/null | grep -q 'is running'; }
+rule_count()    { iptables-save 2>/dev/null | grep -c 'NFQUEUE --queue-num'; }
+router_ip()     { ip -f inet addr show dev br0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1; }
+
+conf_value() {
+  [ -f "$CONF_DIR/nfqws2.conf" ] || return 0
+  ( . "$CONF_DIR/nfqws2.conf" > /dev/null 2>&1; eval "printf '%s' \"\$$1\"" )
+}
+
+tty_ok() { ( : < /dev/tty ) 2>/dev/null; }
+
+ask_yes() {
+  tty_ok || return 1
+  printf '%s' "$1" > /dev/tty
+  read -r answer < /dev/tty || return 1
+  case "$answer" in y*|Y*|д*|Д*) return 0 ;; esac
+  return 1
+}
+
+read_secret() {
+  printf '%s' "$1" > /dev/tty
+  stty -echo < /dev/tty 2>/dev/null
+  IFS= read -r secret < /dev/tty
+  stty echo < /dev/tty 2>/dev/null
+  printf '\n' > /dev/tty
+  printf '%s' "$secret"
+}
+
+preflight() {
+  [ -x /opt/bin/opkg ] || die "нужен Entware: https://help.keenetic.com/hc/ru/articles/360021888880"
+  has_netfilter || die "нет модулей Netfilter. Поставьте в веб-интерфейсе роутера компонент «Модули ядра подсистемы Netfilter» (на старых прошивках он появляется после «Протокол IPv6») и запустите установку снова"
+}
+
+has_netfilter() {
+  lsmod 2>/dev/null | grep -q '^xt_NFQUEUE ' && return 0
+  for d in "/lib/modules/$(uname -r)" "/lib/system-modules/$(uname -r)" /lib/system-modules; do
+    [ -d "$d" ] && [ -n "$(find "$d" -name 'xt_NFQUEUE.ko*' 2>/dev/null | head -n 1)" ] && return 0
+  done
+  return 1
+}
+
+check_engine() {
+  have=$(pkg_version "$ENGINE")
+  if [ "$have" = "$1" ]; then
+    say "  $ENGINE $have"
+    return 0
+  fi
+  avail=$(pkg_available "$ENGINE")
+  if [ "$avail" = "$1" ]; then
+    say "  $ENGINE $have -> $1"
+    opkg flag user "$ENGINE" > /dev/null 2>&1
+    opkg_net upgrade "$ENGINE" < /dev/null >> "$WORK/opkg.log" 2>&1 || { show_file "$WORK/opkg.log" 20; die "не удалось обновить $ENGINE"; }
+  else
+    warn "$ENGINE $have: сборка проверена на $1, в репозитории пакета ${avail:-его нет}. Оставляю как есть"
+  fi
+}
+
+ensure_packages() {
+  step "Пакеты"
+  if [ -z "$(pkg_version "$ENGINE")" ] && [ ! -f "/opt/etc/opkg/$ENGINE.conf" ]; then
+    mkdir -p /opt/etc/opkg
+    echo "src/gz $ENGINE https://nfqws.github.io/$ENGINE/all" > "/opt/etc/opkg/$ENGINE.conf"
+  fi
+  say "  обновляю списки пакетов"
+  opkg_net update > "$WORK/opkg.log" 2>&1 || warn "opkg update завершился с ошибкой, беру сохранённые списки пакетов"
+
+  if [ -n "$(pkg_version nfqws-keenetic)" ]; then
+    say "  убираю nfqws-keenetic (zapret1), его заменит nfqws2"
+    opkg remove nfqws-keenetic < /dev/null >> "$WORK/opkg.log" 2>&1 || die "не удалось удалить nfqws-keenetic"
+  fi
+  if [ -n "$(pkg_version "$OLD_WEB")" ]; then
+    say "  убираю $OLD_WEB, его заменит веб-интерфейс сборки"
+    opkg flag user "$OLD_WEB" > /dev/null 2>&1
+    opkg remove "$OLD_WEB" < /dev/null >> "$WORK/opkg.log" 2>&1 || die "не удалось удалить $OLD_WEB"
+    for p in $OLD_WEB_EXTRA; do
+      [ -n "$(pkg_version "$p")" ] && opkg remove "$p" < /dev/null >> "$WORK/opkg.log" 2>&1
+    done
+  fi
+  rm -rf /opt/share/www/nfqws /opt/etc/nfqws_web.conf /opt/etc/lighttpd/conf.d/80-nfqws.conf "/opt/etc/opkg/$OLD_WEB.conf"
+
+  missing=
+  for p in $ENGINE $WEB_PACKAGES; do
+    [ -n "$(pkg_version "$p")" ] || missing="$missing $p"
+  done
+  if [ -n "$missing" ]; then
+    say "  ставлю$missing"
+    opkg_net install $missing < /dev/null >> "$WORK/opkg.log" 2>&1 || { show_file "$WORK/opkg.log" 20; die "не удалось поставить пакеты"; }
+  fi
+  check_engine "$(build_value NFQWS2_KEENETIC_VERSION "$1")"
+}
+
+strategy_ids()     { grep -o '"id": *"[^"]*"' "$1/index.json" | sed 's/.*"\([^"]*\)"$/\1/'; }
+strategy_default() { sed -n 's/.*"default": *"\([^"]*\)".*/\1/p' "$1/index.json"; }
+strategy_title()   { sed -n '1s/^# \(.*\) из Flowseal.*/\1/p' "$1/$2.conf"; }
+
+pick_strategy() {
+  s=$(setting STRATEGY)
+  if [ -n "$s" ] && [ -f "$1/$s.conf" ]; then
+    echo "$s"
+  else
+    strategy_default "$1"
+  fi
+}
+
+render_config() {
+  iface=$(conf_value ISP_INTERFACE)
+  [ -n "$iface" ] || iface=$(ip route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+  [ -n "$iface" ] || die "не удалось узнать интерфейс провайдера"
+  ipv6=$(conf_value IPV6_ENABLED)
+  if [ -z "$ipv6" ]; then
+    ipv6=0
+    ip -f inet6 addr show dev "${iface%% *}" 2>/dev/null | grep -q 'scope global' && ipv6=1
+  fi
+  version=$(conf_value CONFIG_VERSION)
+  [ -n "$version" ] || version=$(sed -n 's/^CONFIG_VERSION=//p' "$1")
+  awk -v f="$2" '$0 == "@STRATEGY@" { while ((getline line < f) > 0) print line; next } { print }' "$1" |
+    sed -e "s|^ISP_INTERFACE=.*|ISP_INTERFACE=\"$iface\"|" \
+        -e "s|^IPV6_ENABLED=.*|IPV6_ENABLED=$ipv6|" \
+        -e "s|^CONFIG_VERSION=.*|CONFIG_VERSION=$version|" > "$3"
+}
+
+dry_run() {
+  ( . "$INIT" > /dev/null 2>&1
+    . "$1"
+    validate_config && /opt/usr/bin/nfqws2 --dry-run $(_startup_args) ) > "$2" 2>&1
+}
+
+stage_build() {
+  STAGE=$WORK/stage
+  mkdir -p "$STAGE/lists" "$STAGE/blobs"
+  render_config "$1/nfqws2.conf" "$1/strategies/$2.conf" "$STAGE/nfqws2.conf"
+  cp "$1"/flowseal/lists/*.list "$STAGE/lists/"
+  cp "$1"/flowseal/blobs/*.bin "$STAGE/blobs/"
+}
+
+leftovers() {
+  for f in "$CONF_DIR"/lists/auto.list "$CONF_DIR"/lists/*.list-opkg "$CONF_DIR"/lists/*.list-old \
+           "$CONF_DIR"/nfqws2.conf-old "$CONF_DIR"/nfqws2.conf-opkg /opt/var/log/nfqws2.log \
+           "$CONF_DIR"/lua/zapret-obfs.lua* "$CONF_DIR"/lua/zapret-pcap.lua* "$CONF_DIR"/lua/zapret-tests.lua*; do
+    [ -e "$f" ] && echo "$f"
+  done
+  for f in "$CONF_DIR"/blobs/*; do
+    [ -e "$f" ] && [ ! -e "$STAGE/blobs/${f##*/}" ] && echo "$f"
+  done
+}
+
+same_tree() {
+  [ -d "$2" ] || return 1
+  [ "$(cd "$1" && find . -type f | sort | xargs sha256sum)" = "$(cd "$2" && find . -type f | sort | xargs sha256sum)" ]
+}
+
+show_diff() {
+  step "Стратегия"
+  say "  $(strategy_title "$1/strategies" "$2") ($2)"
+
+  step "Конфиг"
+  if [ ! -f "$CONF_DIR/nfqws2.conf" ]; then
+    say "  на роутере нет, будет создан"
+  elif cmp -s "$STAGE/nfqws2.conf" "$CONF_DIR/nfqws2.conf"; then
+    say "  совпадает"
+  else
+    diff -u "$CONF_DIR/nfqws2.conf" "$STAGE/nfqws2.conf"
+  fi
+
+  step "Списки и фейки Flowseal"
+  for f in "$STAGE"/lists/*.list "$STAGE"/blobs/*; do
+    rel=${f#"$STAGE"/}
+    if cmp -s "$f" "$CONF_DIR/$rel"; then
+      say "  $rel: совпадает"
+    elif [ ! -e "$CONF_DIR/$rel" ]; then
+      say "  $rel: новый"
+    elif [ "${rel%%/*}" = lists ]; then
+      diff -u "$CONF_DIR/$rel" "$f"
+    else
+      say "  $rel: изменится"
+    fi
+  done
+
+  step "Свои списки"
+  for p in $PERSONAL; do
+    f=$CONF_DIR/lists/$p
+    if [ ! -f "$f" ]; then
+      say "  $p: нет, будет создан пустым"
+    elif is_pkg_default "$f"; then
+      say "  $p: список пакета по умолчанию, будет очищен"
+    else
+      say "  $p: записей $(grep -c . "$f"), не меняется"
+    fi
+  done
+
+  step "Веб-интерфейс"
+  if same_tree "$1/www" "$WWW_DIR" && cmp -s "$1/etc/lighttpd.conf" "$LIGHTTPD_CONF"; then
+    say "  совпадает"
+  else
+    say "  изменится"
+  fi
+
+  step "Лишние файлы"
+  extra=$(leftovers)
+  [ -n "$(pkg_version "$OLD_WEB")" ] && extra="$extra
+пакет $OLD_WEB"
+  [ -d /opt/share/www/nfqws ] && extra="$extra
+/opt/share/www/nfqws"
+  extra=$(echo "$extra" | sed '/^$/d')
+  if [ -n "$extra" ]; then echo "$extra" | sed 's/^/  /'; else say "  нет"; fi
+
+  step "Пакет $ENGINE"
+  say "  стоит $(pkg_version "$ENGINE"), сборка проверена на $(build_value NFQWS2_KEENETIC_VERSION "$1/build.conf")"
+}
+
+apply_build() {
+  for p in $PERSONAL; do
+    f=$CONF_DIR/lists/$p
+    if [ -f "$f" ] && ! is_pkg_default "$f"; then cp "$f" "$STAGE/lists/$p"; else : > "$STAGE/lists/$p"; fi
+  done
+  sed -e "s#$CONF_DIR/lists/#$STAGE/lists/#g" -e "s#$CONF_DIR/blobs/#$STAGE/blobs/#g" \
+    "$STAGE/nfqws2.conf" > "$STAGE/dry-run.conf"
+  chmod -R a+rX "$WORK"
+
+  step "Проверка конфига"
+  if ! dry_run "$STAGE/dry-run.conf" "$WORK/dry-run.log"; then
+    show_file "$WORK/dry-run.log"
+    die "конфиг не прошёл проверку, на роутере ничего не изменено"
+  fi
+  say "  $(tail -n 1 "$WORK/dry-run.log")"
+
+  step "Установка"
+  tar -czf "$WORK/previous.tar.gz" -C "${CONF_DIR%/*}" "${CONF_DIR##*/}"
+  mkdir -p "$CONF_DIR/lists" "$CONF_DIR/blobs"
+  cp "$STAGE"/blobs/* "$CONF_DIR/blobs/"
+  for f in "$STAGE"/lists/*.list; do
+    is_personal "${f##*/}" || cp "$f" "$CONF_DIR/lists/"
+  done
+  for p in $PERSONAL; do
+    f=$CONF_DIR/lists/$p
+    if [ ! -f "$f" ]; then
+      : > "$f"
+    elif is_pkg_default "$f"; then
+      : > "$f"
+      say "  $p: очищен список пакета по умолчанию"
+    fi
+  done
+  cp "$STAGE/nfqws2.conf" "$CONF_DIR/nfqws2.conf"
+  chmod 644 "$CONF_DIR/nfqws2.conf" "$CONF_DIR"/lists/*.list "$CONF_DIR"/blobs/*
+  say "  конфиг, списки и фейки на месте"
+  leftovers | while read -r f; do
+    rm -f "$f" && say "  удалён $f"
+  done
+  opkg flag hold "$ENGINE" > /dev/null 2>&1 && say "  пакет $ENGINE заморожен, обновляется только сборкой"
+
+  restart_nfqws "$WORK/previous.tar.gz"
+}
+
+restart_nfqws() {
+  step "Перезапуск nfqws2"
+  "$INIT" restart > "$WORK/restart.log" 2>&1
+  if nfqws_running; then
+    say "  работает, правил NFQUEUE: $(rule_count)"
+    return 0
+  fi
+  show_file "$WORK/restart.log"
+  say "  nfqws2 не запустился, возвращаю прежние файлы"
+  case "$1" in
+    *.tar.gz) tar -xzf "$1" -C "${CONF_DIR%/*}" ;;
+    *) cp "$1" "$CONF_DIR/nfqws2.conf" ;;
+  esac
+  "$INIT" restart > /dev/null 2>&1
+  die "новый конфиг не запустился, оставлен прежний"
+}
+
+lighttpd_pids() { ps w | awk '$5 == "/opt/sbin/lighttpd" { print $1 }'; }
+
+lighttpd_stop() {
+  pids=$(lighttpd_pids)
+  [ -n "$pids" ] || return 0
+  kill $pids 2>/dev/null
+  n=0
+  while [ -n "$(lighttpd_pids)" ] && [ "$n" -lt 10 ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+}
+
+lighttpd_start() {
+  [ -x /opt/sbin/lighttpd ] || return 1
+  log=/dev/null
+  [ -n "$WORK" ] && log=$WORK/lighttpd.log
+  /opt/sbin/lighttpd -f /opt/etc/lighttpd/lighttpd.conf > "$log" 2>&1
+  n=0
+  while [ -z "$(lighttpd_pids)" ] && [ "$n" -lt 5 ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+  [ -n "$(lighttpd_pids)" ]
+}
+
+install_web() {
+  step "Веб-интерфейс"
+  [ -f "$1/www/index.html" ] || die "в сборке нет веб-интерфейса"
+  changed=
+  if ! same_tree "$1/www" "$WWW_DIR"; then
+    rm -rf "$WWW_DIR.new" "$WWW_DIR.old"
+    cp -R "$1/www" "$WWW_DIR.new" && chmod -R a+rX "$WWW_DIR.new" || die "не удалось скопировать веб-интерфейс"
+    [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$WWW_DIR.old"
+    mv "$WWW_DIR.new" "$WWW_DIR" && rm -rf "$WWW_DIR.old"
+    changed=1
+  fi
+  if ! cmp -s "$1/etc/lighttpd.conf" "$LIGHTTPD_CONF"; then
+    mkdir -p "${LIGHTTPD_CONF%/*}"
+    cp "$1/etc/lighttpd.conf" "$LIGHTTPD_CONF"
+    changed=1
+  fi
+  if grep -q '^PROCS=lighttpd$' "$LIGHTTPD_INIT" 2>/dev/null; then
+    sed -i 's#^PROCS=lighttpd$#PROCS=/opt/sbin/lighttpd#' "$LIGHTTPD_INIT"
+  fi
+  if [ -n "$changed" ] || [ -z "$(lighttpd_pids)" ]; then
+    lighttpd_stop
+    if lighttpd_start; then
+      say "  обновлён, lighttpd перезапущен"
+    else
+      show_file "$WORK/lighttpd.log"
+      warn "lighttpd не запустился, веб-интерфейс недоступен"
+    fi
+  else
+    say "  без изменений"
+  fi
+  [ -f "$WEB_CONF" ] || web_password_set ""
+  say "  http://$(router_ip):90"
+}
+
+install_state() {
+  mkdir -p "$STATE_DIR" "${TOOL%/*}"
+  cp "$1/build.conf" "$STATE_DIR/build.conf"
+  cp "$1/nfqws2.conf" "$STATE_DIR/nfqws2.conf.in"
+  rm -rf "$STATE_DIR/strategies.new"
+  cp -R "$1/strategies" "$STATE_DIR/strategies.new" && rm -rf "$STATE_DIR/strategies" && mv "$STATE_DIR/strategies.new" "$STATE_DIR/strategies"
+  cp "$1/nfqws2-flowseal" "$TOOL.new" && chmod 755 "$TOOL.new" && mv -f "$TOOL.new" "$TOOL"
+  set_setting STRATEGY "$2"
+}
+
+web_password_set() {
+  mkdir -p "$STATE_DIR"
+  if [ -z "$1" ]; then
+    printf 'PASSWORD=""\n' > "$WEB_CONF"
+  else
+    salt=$(head -c 16 /dev/urandom | sha256sum | cut -c 1-16)
+    hash=$(printf '%s' "$salt$1" | sha256sum | cut -d ' ' -f 1)
+    printf 'PASSWORD="%s:%s"\n' "$salt" "$hash" > "$WEB_CONF"
+  fi
+  chmod 600 "$WEB_CONF"
+}
+
+web_password_on() { grep -q '^PASSWORD="[^"]' "$WEB_CONF" 2>/dev/null; }
+
+ask_password() {
+  p1=$(read_secret "Пароль для веб-интерфейса (Enter - без пароля): ")
+  if [ -z "$p1" ]; then
+    PASS=
+    return 0
+  fi
+  p2=$(read_secret "Ещё раз: ")
+  [ "$p1" = "$p2" ] || return 1
+  PASS=$p1
+}
+
+autoupdate_set() {
+  case "$1" in
+    on)
+      if [ ! -x /opt/sbin/cron ]; then
+        say "  ставлю cron"
+        opkg_net install cron < /dev/null > /dev/null 2>&1 \
+          || { opkg_net update > /dev/null 2>&1; opkg_net install cron < /dev/null > /dev/null 2>&1; } \
+          || die "не удалось поставить cron"
+      fi
+      mkdir -p "${CRON_FILE%/*}"
+      minute=$(awk 'BEGIN { srand(); print int(rand() * 60) }')
+      printf '%s 4 * * * root %s update --auto\n' "$minute" "$TOOL" > "$CRON_FILE"
+      chmod 600 "$CRON_FILE"
+      /opt/etc/init.d/S10cron restart > /dev/null 2>&1
+      ;;
+    off)
+      rm -f "$CRON_FILE"
+      ;;
+  esac
+}
+
+autoupdate_time() { [ -f "$CRON_FILE" ] && awk '{ printf "%02d:%02d", $2, $1; exit }' "$CRON_FILE"; }
+
+autoupdate_state() {
+  t=$(autoupdate_time)
+  if [ -n "$t" ]; then echo "включено, каждый день в $t"; else echo "выключено"; fi
+}
+
+cmd_status() {
+  if [ "$1" = --json ]; then
+    status_json
+    return
+  fi
+  if [ -f "$STATE_DIR/build.conf" ]; then
+    b=$STATE_DIR/build.conf
+    say "Сборка: $(build_value BUILD_VERSION "$b"), стратегии Flowseal $(build_value FLOWSEAL_VERSION "$b")"
+    s=$(setting STRATEGY)
+    [ -n "$s" ] && say "Стратегия: $(strategy_title "$STATE_DIR/strategies" "$s") ($s)"
+  else
+    say "Сборка: не установлена"
+  fi
+  v=$(pkg_version "$ENGINE")
+  if [ -z "$v" ]; then
+    say "$ENGINE: не установлен"
+  elif pkg_held "$ENGINE"; then
+    say "$ENGINE: $v, заморожен"
+  else
+    say "$ENGINE: $v, не заморожен"
+  fi
+  if nfqws_running; then
+    say "nfqws2: работает, интерфейс $(conf_value ISP_INTERFACE), правил NFQUEUE $(rule_count)"
+  else
+    say "nfqws2: не работает"
+  fi
+  if web_password_on; then w="пароль задан"; else w="без пароля"; fi
+  say "Веб-интерфейс: http://$(router_ip):90, $w"
+  say "Автообновление: $(autoupdate_state)"
+  counts=
+  for p in $PERSONAL; do
+    [ -f "$CONF_DIR/lists/$p" ] && counts="$counts, $p $(grep -c . "$CONF_DIR/lists/$p")"
+  done
+  [ -n "$counts" ] && say "Свои списки: ${counts#, }"
+}
+
+status_json() {
+  b=$STATE_DIR/build.conf
+  if nfqws_running; then running=true; else running=false; fi
+  if web_password_on; then password=true; else password=false; fi
+  if pkg_held "$ENGINE"; then held=true; else held=false; fi
+  printf '{"build":"%s","flowseal":"%s","strategy":"%s","running":%s,"interface":"%s","rules":%s,"engine":"%s","held":%s,"password":%s,"autoupdate":"%s","busy":%s}\n' \
+    "$(build_value BUILD_VERSION "$b" 2>/dev/null)" "$(build_value FLOWSEAL_VERSION "$b" 2>/dev/null)" \
+    "$(setting STRATEGY)" "$running" "$(conf_value ISP_INTERFACE)" "$(rule_count)" \
+    "$(pkg_version "$ENGINE")" "$held" "$password" "$(autoupdate_time)" \
+    "$([ -d "$LOCK" ] && echo true || echo false)"
+}
+
+cmd_install() {
+  src=$1
+  [ -n "$src" ] && [ -f "$src/build.conf" ] || die "не найдена сборка: ${src:-папка не указана}"
+  shift
+  auto=
+  for a in "$@"; do
+    case "$a" in
+      --autoupdate) auto=on ;;
+      --no-autoupdate) auto=off ;;
+      *) die "неизвестный параметр $a" ;;
+    esac
+  done
+
+  keep_running install
+  lock
+  preflight
+  first=
+  [ -f "$STATE_DIR/build.conf" ] || first=1
+  new_work
+  b=$src/build.conf
+  say "nfqws2-flowseal $(build_value BUILD_VERSION "$b"): стратегии Flowseal $(build_value FLOWSEAL_VERSION "$b")"
+
+  ensure_packages "$b"
+  id=$(pick_strategy "$src/strategies")
+  [ -n "$id" ] || die "в сборке нет стратегий"
+  s=$(setting STRATEGY)
+  [ -n "$s" ] && [ "$s" != "$id" ] && warn "стратегии $s больше нет в сборке, включаю $id"
+  stage_build "$src" "$id"
+  apply_build
+  install_web "$src"
+  install_state "$src" "$id"
+
+  if [ -n "$first" ] && tty_ok; then
+    [ -z "$auto" ] && ask_yes "Обновлять сборку автоматически раз в сутки? [y/N] " && auto=on
+    if ask_password; then
+      web_password_set "$PASS"
+    else
+      warn "пароли не совпали, вход без пароля. Задать позже: nfqws2-flowseal password set"
+    fi
+  fi
+  [ -n "$auto" ] && autoupdate_set "$auto"
+
+  step "Готово"
+  cmd_status
+  say ""
+  say "Команды: nfqws2-flowseal help"
+}
+
+cmd_check() {
+  [ -n "$1" ] && [ -f "$1/build.conf" ] || die "не найдена сборка: ${1:-папка не указана}"
+  new_work
+  id=$(pick_strategy "$1/strategies")
+  stage_build "$1" "$id"
+  show_diff "$1" "$id"
+}
+
+cmd_update() {
+  mode=install
+  force=
+  for a in "$@"; do
+    case "$a" in
+      --check) mode=check ;;
+      --force) force=1 ;;
+      --auto)
+        mkdir -p "${LOG%/*}"
+        exec > "$LOG" 2>&1
+        NFQWS2_FLOWSEAL_LOG=stdout
+        export NFQWS2_FLOWSEAL_LOG
+        say "$(date '+%Y-%m-%d %H:%M') автообновление"
+        ;;
+      *) die "неизвестный параметр $a" ;;
+    esac
+  done
+
+  if [ "$mode" != check ]; then
+    keep_running update
+    lock
+  fi
+  new_work
+  say "Скачиваю сборку с GitHub"
+  wget -q -T 30 -t 3 -O "$WORK/build.tar.gz" "$ARCHIVE_URL" || die "не удалось скачать $ARCHIVE_URL"
+  tar -xzf "$WORK/build.tar.gz" -C "$WORK" || die "архив сборки повреждён"
+  src=$WORK/nfqws2-flowseal-main
+  [ -f "$src/build.conf" ] || die "в архиве нет build.conf"
+
+  have=
+  [ -f "$STATE_DIR/build.conf" ] && have=$(build_value BUILD_VERSION "$STATE_DIR/build.conf")
+  new=$(build_value BUILD_VERSION "$src/build.conf")
+
+  if [ "$mode" = check ]; then
+    say "  стоит ${have:-ничего}, на GitHub $new"
+    sh "$src/nfqws2-flowseal" check "$src"
+    return
+  fi
+  if [ "$have" = "$new" ] && [ -z "$force" ]; then
+    say "  сборка актуальна: $new"
+    return 0
+  fi
+  if [ -n "$have" ] && version_gt "$have" "$new" && [ -z "$force" ]; then
+    say "  стоит $have, на GitHub более старая $new: оставляю как есть"
+    return 0
+  fi
+  say "  ${have:-ничего} -> $new"
+  sh "$src/nfqws2-flowseal" install "$src" < /dev/null
+}
+
+cmd_strategy() {
+  dir=$STATE_DIR/strategies
+  case "$1" in
+    "")
+      [ -f "$dir/index.json" ] || die "сборка не установлена"
+      cur=$(setting STRATEGY)
+      for id in $(strategy_ids "$dir"); do
+        mark=" "
+        [ "$id" = "$cur" ] && mark="*"
+        say "$mark $id  $(strategy_title "$dir" "$id")"
+      done
+      say ""
+      say "Сменить: nfqws2-flowseal strategy <id>"
+      return
+      ;;
+    --test-all)
+      strategy_test_all "${2:-}"
+      return
+      ;;
+  esac
+
+  id=$1
+  [ -f "$dir/$id.conf" ] || die "нет стратегии $id. Список: nfqws2-flowseal strategy"
+  keep_running "strategy $id" append
+  lock
+  new_work
+  say "Стратегия: $(strategy_title "$dir" "$id")"
+  render_config "$STATE_DIR/nfqws2.conf.in" "$dir/$id.conf" "$WORK/nfqws2.conf"
+  chmod -R a+rX "$WORK"
+  step "Проверка конфига"
+  dry_run "$WORK/nfqws2.conf" "$WORK/dry-run.log" || { show_file "$WORK/dry-run.log"; die "конфиг не прошёл проверку, стратегия не изменена"; }
+  say "  $(tail -n 1 "$WORK/dry-run.log")"
+  cp "$CONF_DIR/nfqws2.conf" "$WORK/previous.conf"
+  cp "$WORK/nfqws2.conf" "$CONF_DIR/nfqws2.conf"
+  chmod 644 "$CONF_DIR/nfqws2.conf"
+  restart_nfqws "$WORK/previous.conf"
+  set_setting STRATEGY "$id"
+}
+
+strategy_test_all() {
+  if [ -n "$1" ]; then
+    tpl=$1/nfqws2.conf
+    dir=$1/strategies
+  else
+    tpl=$STATE_DIR/nfqws2.conf.in
+    dir=$STATE_DIR/strategies
+  fi
+  [ -f "$dir/index.json" ] || die "не найдены стратегии в $dir"
+  new_work
+  total=0
+  failed=0
+  for id in $(strategy_ids "$dir"); do
+    total=$((total + 1))
+    render_config "$tpl" "$dir/$id.conf" "$WORK/$id.conf"
+    chmod -R a+rX "$WORK"
+    if dry_run "$WORK/$id.conf" "$WORK/$id.log"; then
+      say "  OK      $id"
+    else
+      failed=$((failed + 1))
+      say "  ОШИБКА  $id"
+      show_file "$WORK/$id.log" 5
+    fi
+  done
+  say "Проверено $total, с ошибками $failed"
+  [ "$failed" -eq 0 ]
+}
+
+cmd_password() {
+  case "$1" in
+    set)
+      if tty_ok; then
+        ask_password || die "пароли не совпали, пароль не изменён"
+      else
+        IFS= read -r PASS || true
+      fi
+      [ -n "$PASS" ] || die "пустой пароль. Чтобы входить без пароля: nfqws2-flowseal password off"
+      web_password_set "$PASS"
+      say "Пароль веб-интерфейса задан"
+      ;;
+    off)
+      web_password_set ""
+      say "Вход в веб-интерфейс без пароля"
+      ;;
+    "")
+      if web_password_on; then say "Пароль веб-интерфейса задан"; else say "Вход в веб-интерфейс без пароля"; fi
+      ;;
+    *) die "используйте: nfqws2-flowseal password set|off" ;;
+  esac
+}
+
+cmd_autoupdate() {
+  case "$1" in
+    on|off)
+      lock
+      new_work
+      autoupdate_set "$1"
+      ;;
+    "") ;;
+    *) die "используйте: nfqws2-flowseal autoupdate on|off" ;;
+  esac
+  say "Автообновление: $(autoupdate_state)"
+}
+
+cmd_remove() {
+  if [ "$1" != --yes ]; then
+    tty_ok || die "нет терминала для вопроса, запустите: nfqws2-flowseal remove --yes"
+    ask_yes "Удалить сборку, nfqws2 и веб-интерфейс с роутера? [y/N] " || die "отменено"
+  fi
+  trap '' HUP PIPE
+  lock
+  step "Удаление"
+  "$INIT" stop > /dev/null 2>&1
+  rm -f "$CRON_FILE"
+  opkg flag user "$ENGINE" > /dev/null 2>&1
+  opkg remove --autoremove "$ENGINE" < /dev/null > /dev/null 2>&1 || warn "opkg remove $ENGINE завершился с ошибкой"
+  rm -rf "$WWW_DIR" "$LIGHTTPD_CONF"
+  lighttpd_stop
+  opkg remove --autoremove $WEB_PACKAGES < /dev/null > /dev/null 2>&1
+  lighttpd_start
+  rm -rf "$CONF_DIR" "$STATE_DIR"
+  rm -f "/opt/etc/opkg/$ENGINE.conf" /opt/var/log/nfqws2*.log
+  rm -f "$TOOL"
+  say "  nfqws2, веб-интерфейс и сборка удалены"
+}
+
+usage() {
+  cat <<'EOF'
+nfqws2-flowseal: nfqws2 со стратегиями Flowseal для роутеров Keenetic и Netcraze
+
+  nfqws2-flowseal status              что стоит и работает ли nfqws2
+  nfqws2-flowseal strategy            список стратегий, текущая отмечена *
+  nfqws2-flowseal strategy <id>       включить стратегию, например alt11
+  nfqws2-flowseal update              поставить последнюю версию сборки
+  nfqws2-flowseal update --check      показать, что изменится, ничего не меняя
+  nfqws2-flowseal autoupdate on|off   обновляться самому раз в сутки или только вручную
+  nfqws2-flowseal password set|off    задать пароль веб-интерфейса или входить без него
+  nfqws2-flowseal remove              удалить сборку, nfqws2 и веб-интерфейс
+
+Веб-интерфейс: http://<адрес роутера>:90
+https://github.com/klaymm/nfqws2-flowseal
+EOF
+}
+
+cmd=$1
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  status)     cmd_status "$@" ;;
+  strategy)   cmd_strategy "$@" ;;
+  update)     cmd_update "$@" ;;
+  autoupdate) cmd_autoupdate "$@" ;;
+  password)   cmd_password "$@" ;;
+  remove)     cmd_remove "$@" ;;
+  install)    cmd_install "$@" ;;
+  check)      cmd_check "$@" ;;
+  ""|help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

@@ -229,7 +229,46 @@ pick_strategy() {
   fi
 }
 
+policy_names() {
+  LD_LIBRARY_PATH=/lib:/usr/lib /bin/ndmc -c show ip policy 2>/dev/null |
+    sed -n 's/^ *policy, name = [^,]*, description = \(.*\): *$/\1/p'
+}
+
+policy_safe() {
+  case "$1" in *'"'* | *'\'* | *'$'* | *'`'*) return 1 ;; esac
+  return 0
+}
+
+policy_choice() {
+  if grep -q '^POLICY=' "$SETTINGS" 2>/dev/null; then
+    POLICY=$(setting POLICY)
+    POLICY_EXCLUDE=$(setting POLICY_EXCLUDE)
+  else
+    old=$(conf_value POLICY_NAME)
+    POLICY=$(policy_names | grep -i -x -F -- "${old:-nfqws}" | head -n 1)
+    policy_safe "$POLICY" || POLICY=
+    POLICY_EXCLUDE=$(conf_value POLICY_EXCLUDE)
+  fi
+  [ -n "$POLICY" ] && [ "$POLICY_EXCLUDE" = 1 ] || POLICY_EXCLUDE=0
+  POLICY_READY=1
+}
+
+policy_text() {
+  if [ -z "$1" ]; then
+    echo "все устройства"
+  elif [ "$2" = 1 ]; then
+    echo "все, кроме политики «$1»"
+  else
+    echo "только политика «$1»"
+  fi
+}
+
+policy_applied() {
+  [ -n "$(sed -n 's/^POLICY_MARK="\(.*\)"$/\1/p' "$CONF_DIR/nfqws2.conf.run" 2>/dev/null)" ]
+}
+
 render_config() {
+  [ -n "$POLICY_READY" ] || policy_choice
   iface=$(conf_value ISP_INTERFACE)
   [ -n "$iface" ] || iface=$(ip route show default 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
   [ -n "$iface" ] || die "не удалось узнать интерфейс провайдера"
@@ -240,7 +279,11 @@ render_config() {
   fi
   version=$(conf_value CONFIG_VERSION)
   [ -n "$version" ] || version=$(sed -n 's/^CONFIG_VERSION=//p' "$1")
-  awk -v f="$2" '$0 == "@STRATEGY@" { while ((getline line < f) > 0) print line; next } { print }' "$1" |
+  awk -v f="$2" -v policy="$POLICY" -v exclude="$POLICY_EXCLUDE" '
+    $0 == "@STRATEGY@" { while ((getline line < f) > 0) print line; next }
+    /^POLICY_NAME=/ { print "POLICY_NAME=\"" policy "\""; next }
+    /^POLICY_EXCLUDE=/ { print "POLICY_EXCLUDE=" exclude; next }
+    { print }' "$1" |
     sed -e "s|^ISP_INTERFACE=.*|ISP_INTERFACE=\"$iface\"|" \
         -e "s|^IPV6_ENABLED=.*|IPV6_ENABLED=$ipv6|" \
         -e "s|^CONFIG_VERSION=.*|CONFIG_VERSION=$version|" > "$3"
@@ -279,6 +322,9 @@ same_tree() {
 show_diff() {
   step "Стратегия"
   say "  $(strategy_title "$1/strategies" "$2") ($2)"
+
+  step "Устройства"
+  say "  $(policy_text "$POLICY" "$POLICY_EXCLUDE")"
 
   step "Конфиг"
   if [ ! -f "$CONF_DIR/nfqws2.conf" ]; then
@@ -463,6 +509,8 @@ install_state() {
   cp -R "$1/strategies" "$STATE_DIR/strategies.new" && rm -rf "$STATE_DIR/strategies" && mv "$STATE_DIR/strategies.new" "$STATE_DIR/strategies"
   cp "$1/nfqws2-flowseal" "$TOOL.new" && chmod 755 "$TOOL.new" && mv -f "$TOOL.new" "$TOOL"
   set_setting STRATEGY "$2"
+  set_setting POLICY "$POLICY"
+  set_setting POLICY_EXCLUDE "$POLICY_EXCLUDE"
 }
 
 web_password_set() {
@@ -544,6 +592,14 @@ cmd_status() {
   else
     say "nfqws2: не работает"
   fi
+  if [ -f "$STATE_DIR/build.conf" ]; then
+    policy_choice
+    d=$(policy_text "$POLICY" "$POLICY_EXCLUDE")
+    if [ -n "$POLICY" ] && nfqws_running && ! policy_applied; then
+      d="$d, но её нет в роутере, поэтому обрабатываются все"
+    fi
+    say "Устройства: $d"
+  fi
   if web_password_on; then w="пароль задан"; else w="без пароля"; fi
   say "Веб-интерфейс: http://$(router_ip):90, $w"
   say "Автообновление: $(autoupdate_state)"
@@ -559,11 +615,14 @@ status_json() {
   if nfqws_running; then running=true; else running=false; fi
   if web_password_on; then password=true; else password=false; fi
   if pkg_held "$ENGINE"; then held=true; else held=false; fi
-  printf '{"build":"%s","flowseal":"%s","strategy":"%s","running":%s,"interface":"%s","rules":%s,"engine":"%s","held":%s,"password":%s,"autoupdate":"%s","busy":%s}\n' \
+  policy_choice
+  if [ "$POLICY_EXCLUDE" = 1 ]; then exclude=true; else exclude=false; fi
+  if policy_applied; then applied=true; else applied=false; fi
+  printf '{"build":"%s","flowseal":"%s","strategy":"%s","running":%s,"interface":"%s","rules":%s,"engine":"%s","held":%s,"password":%s,"autoupdate":"%s","busy":%s,"policy":"%s","policy_exclude":%s,"policy_applied":%s}\n' \
     "$(build_value BUILD_VERSION "$b" 2>/dev/null)" "$(build_value FLOWSEAL_VERSION "$b" 2>/dev/null)" \
     "$(setting STRATEGY)" "$running" "$(conf_value ISP_INTERFACE)" "$(rule_count)" \
     "$(pkg_version "$ENGINE")" "$held" "$password" "$(autoupdate_time)" \
-    "$([ -d "$LOCK" ] && echo true || echo false)"
+    "$([ -d "$LOCK" ] && echo true || echo false)" "$POLICY" "$exclude" "$applied"
 }
 
 cmd_install() {
@@ -739,6 +798,67 @@ strategy_test_all() {
   [ "$failed" -eq 0 ]
 }
 
+cmd_policy() {
+  case "$1" in
+    --list)
+      policy_names
+      return
+      ;;
+    "")
+      [ -f "$STATE_DIR/build.conf" ] || die "сборка не установлена"
+      policy_choice
+      say "Устройства: $(policy_text "$POLICY" "$POLICY_EXCLUDE")"
+      names=$(policy_names)
+      if [ -n "$names" ]; then
+        say "Политики роутера:"
+        echo "$names" | while IFS= read -r n; do
+          if [ "$n" = "$POLICY" ]; then say "* $n"; else say "  $n"; fi
+        done
+      else
+        say "В роутере нет политик доступа"
+      fi
+      say ""
+      say "Сменить: nfqws2-flowseal policy all | only <имя> | except <имя>"
+      return
+      ;;
+    all)
+      new=
+      exclude=0
+      ;;
+    only|except)
+      mode=$1
+      shift
+      [ -n "$*" ] || die "укажите политику: nfqws2-flowseal policy $mode <имя>"
+      new=$(policy_names | grep -i -x -F -- "$*" | head -n 1)
+      [ -n "$new" ] || die "в роутере нет политики «$*». Список: nfqws2-flowseal policy"
+      policy_safe "$new" || die "в имени политики «$new» есть кавычки, \\, \$ или \`, переименуйте её в роутере"
+      exclude=0
+      [ "$mode" = except ] && exclude=1
+      ;;
+    *) die "используйте: nfqws2-flowseal policy all | only <имя> | except <имя>" ;;
+  esac
+
+  [ -f "$STATE_DIR/nfqws2.conf.in" ] || die "сборка не установлена"
+  POLICY=$new
+  POLICY_EXCLUDE=$exclude
+  POLICY_READY=1
+  keep_running "policy: $(policy_text "$POLICY" "$POLICY_EXCLUDE")" append
+  lock
+  new_work
+  say "Устройства: $(policy_text "$POLICY" "$POLICY_EXCLUDE")"
+  dir=$STATE_DIR/strategies
+  render_config "$STATE_DIR/nfqws2.conf.in" "$dir/$(pick_strategy "$dir").conf" "$WORK/nfqws2.conf"
+  cp "$CONF_DIR/nfqws2.conf" "$WORK/previous.conf"
+  cp "$WORK/nfqws2.conf" "$CONF_DIR/nfqws2.conf"
+  chmod 644 "$CONF_DIR/nfqws2.conf"
+  restart_nfqws "$WORK/previous.conf"
+  set_setting POLICY "$POLICY"
+  set_setting POLICY_EXCLUDE "$POLICY_EXCLUDE"
+  if [ -n "$POLICY" ] && ! policy_applied; then
+    warn "nfqws2 не нашёл политику «$POLICY», поэтому обрабатываются все устройства"
+  fi
+}
+
 cmd_password() {
   case "$1" in
     set)
@@ -801,14 +921,18 @@ usage() {
   cat <<'EOF'
 nfqws2-flowseal: nfqws2 со стратегиями Flowseal для роутеров Keenetic и Netcraze
 
-  nfqws2-flowseal status              что стоит и работает ли nfqws2
-  nfqws2-flowseal strategy            список стратегий, текущая отмечена *
-  nfqws2-flowseal strategy <id>       включить стратегию, например alt11
-  nfqws2-flowseal update              поставить последнюю версию сборки
-  nfqws2-flowseal update --check      показать, что изменится, ничего не меняя
-  nfqws2-flowseal autoupdate on|off   обновляться самому раз в сутки или только вручную
-  nfqws2-flowseal password set|off    задать пароль веб-интерфейса или входить без него
-  nfqws2-flowseal remove              удалить сборку, nfqws2 и веб-интерфейс
+  nfqws2-flowseal status                что стоит и работает ли nfqws2
+  nfqws2-flowseal strategy              список стратегий, текущая отмечена *
+  nfqws2-flowseal strategy <id>         включить стратегию, например alt11
+  nfqws2-flowseal policy                политики доступа роутера и какие устройства обрабатываются
+  nfqws2-flowseal policy all            обрабатывать все устройства
+  nfqws2-flowseal policy only <имя>     только устройства из политики
+  nfqws2-flowseal policy except <имя>   все устройства, кроме политики
+  nfqws2-flowseal update                поставить последнюю версию сборки
+  nfqws2-flowseal update --check        показать, что изменится, ничего не меняя
+  nfqws2-flowseal autoupdate on|off     обновляться самому раз в сутки или только вручную
+  nfqws2-flowseal password set|off      задать пароль веб-интерфейса или входить без него
+  nfqws2-flowseal remove                удалить сборку, nfqws2 и веб-интерфейс
 
 Веб-интерфейс: http://<адрес роутера>:90
 https://github.com/klaymm/nfqws2-flowseal
@@ -820,6 +944,7 @@ cmd=$1
 case "$cmd" in
   status)     cmd_status "$@" ;;
   strategy)   cmd_strategy "$@" ;;
+  policy)     cmd_policy "$@" ;;
   update)     cmd_update "$@" ;;
   autoupdate) cmd_autoupdate "$@" ;;
   password)   cmd_password "$@" ;;

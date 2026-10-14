@@ -22,6 +22,7 @@ opkg update && opkg install ca-certificates wget-ssl && wget -qO- https://raw.gi
 nfqws2-flowseal status              что стоит и работает ли nfqws2
 nfqws2-flowseal strategy            список стратегий
 nfqws2-flowseal strategy alt5       включить другую стратегию
+nfqws2-flowseal policy              политики роутера и выбор устройств
 nfqws2-flowseal update              поставить новую версию сборки
 nfqws2-flowseal update --check      показать, что изменится
 nfqws2-flowseal autoupdate on|off   обновляться самому раз в сутки
@@ -29,7 +30,7 @@ nfqws2-flowseal password off        входить без пароля, если
 nfqws2-flowseal remove              удалить всё
 ```
 
-Сборка обрабатывает трафик всех устройств сети. Если создать в роутере политику доступа `nfqws`, обрабатываться будут только устройства из неё. Конфиг вручную не правьте, сборка его перезаписывает.
+Какие устройства обрабатывать, выбирается на вкладке "Стратегия": все, только устройства из политики доступа роутера или все, кроме них. Конфиг вручную не правьте, сборка его перезаписывает.
 
 ## Чего не умеет
 

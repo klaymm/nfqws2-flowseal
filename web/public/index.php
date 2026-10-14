@@ -17,7 +17,7 @@ function respond(array $data, int $code = 200): never
 {
   http_response_code($code);
   header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
   exit();
 }
 
@@ -126,6 +126,18 @@ function main(): void
         respond(['status' => 1, 'error' => 'strategy'], 400);
       }
       respond(tool('strategy', $id));
+
+    case 'policies':
+      $result = tool('policy', '--list');
+      respond(['status' => 0, 'policies' => array_values(array_filter($result['output'], 'strlen'))]);
+
+    case 'policy_set':
+      // Имя политики проверяет утилита: она есть в роутере и годится для конфига
+      $mode = param('mode');
+      if (!in_array($mode, ['all', 'only', 'except'], true)) {
+        respond(['status' => 1, 'error' => 'mode'], 400);
+      }
+      respond($mode === 'all' ? tool('policy', 'all') : tool('policy', $mode, param('name')));
 
     case 'file_get':
       $path = list_path(param('name'), false);

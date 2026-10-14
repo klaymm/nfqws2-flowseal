@@ -21,6 +21,7 @@ import {
   type StrategyInfo,
 } from '@/api/client';
 
+import { DevicesSection } from '@/components/DevicesSection';
 import { HelpTip } from '@/components/HelpTip';
 import { OutputLogDialog } from '@/components/OutputLogDialog';
 import { InfoRow, Page, Section } from '@/components/Page';
@@ -229,6 +230,8 @@ function RouteComponent() {
           </Alert>
         )}
       </Section>
+
+      <DevicesSection status={status} />
 
       <Section title={t('strategy.status')}>
         <InfoRow label={t('strategy.state')}>

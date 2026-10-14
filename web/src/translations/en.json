@@ -72,6 +72,22 @@
     "busy": "The router is busy with an update or another change, try again in a minute.",
     "status": "Status"
   },
+  "devices": {
+    "title": "Devices",
+    "help": "Which home network devices nfqws2 processes. Access policies are created in the router web interface: Connection priorities → Internet access policies, where devices are added to them too. The provider connection must be ticked in the policy.",
+    "mode": "Which devices to process",
+    "all": "All devices",
+    "only": "Only from the policy",
+    "except": "All except the policy",
+    "policy": "Access policy",
+    "choose": "Choose a policy",
+    "missing": "not on the router",
+    "no_policies": "The router has no access policies. Create one in the router web interface: Connection priorities → Internet access policies.",
+    "now_all": "All devices are processed now.",
+    "now_only": "Only devices from the policy \"{{name}}\" are processed now.",
+    "now_except": "All devices except the policy \"{{name}}\" are processed now.",
+    "not_applied": "The policy \"{{name}}\" is not on the router, so all devices are processed."
+  },
   "lists": {
     "personal": "Your lists",
     "personal_help": "These lists are yours: only you change them, build updates never touch them.",

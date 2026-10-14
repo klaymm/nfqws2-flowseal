@@ -14,6 +14,9 @@ export type Status = {
   password: boolean;
   autoupdate: string;
   busy: boolean;
+  policy: string;
+  policy_exclude: boolean;
+  policy_applied: boolean;
 };
 
 export type StrategyInfo = {
@@ -76,6 +79,13 @@ export const useStrategies = () =>
     queryKey: ['strategies'],
     queryFn: () => api<Strategies & { status: number }>('strategies'),
     staleTime: Infinity,
+  });
+
+export const usePolicies = () =>
+  useQuery({
+    queryKey: ['policies'],
+    queryFn: () => api<{ policies: string[] }>('policies'),
+    staleTime: 60 * 1000,
   });
 
 export const useFileContent = (name: string) =>
